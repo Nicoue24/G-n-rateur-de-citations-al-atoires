@@ -5,6 +5,7 @@
 
 // --- State ---
 let quotes = [];
+let filteredQuotes = [];
 let currentQuote = null;
 
 // --- DOM Elements ---
@@ -17,6 +18,7 @@ const newQuoteBtn = document.getElementById('new-quote-btn');
 const bgGlow1 = document.getElementById('bg-glow-1');
 const bgGlow2 = document.getElementById('bg-glow-2');
 const toast = document.getElementById('toast');
+const searchInput = document.getElementById('search-input');
 
 // Social Buttons
 const btnTwitter = document.getElementById('share-twitter');
@@ -58,9 +60,46 @@ async function init() {
   btnFacebook.addEventListener('click', shareOnFacebook);
   btnInstagram.addEventListener('click', shareOnInstagram);
   btnCopy.addEventListener('click', copyToClipboard);
+  searchInput.addEventListener('input', handleFilter);
+}
+
+function handleFilter(e) {
+  const term = e.target.value.toLowerCase();
+  
+  filteredQuotes = quotes.filter(q => {
+    const text = q.text.toLowerCase();
+    const author = (q.author || '').toLowerCase();
+    return text.includes(term) || author.includes(term);
+  });
+
+  // If we filtered out everything, maybe show a hint or leave current quote?
+  // For now, if we match nothing, we just won't be able to cycle.
 }
 
 // --- Functions ---
+
+function playClickSound() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(400, audioCtx.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.1);
+  } catch (e) {
+    console.warn('Web Audio not supported or blocked');
+  }
+}
 
 function shareOnInstagram() {
   if (!currentQuote) return;
@@ -68,8 +107,18 @@ function shareOnInstagram() {
   
   navigator.clipboard.writeText(text).then(() => {
     showToast("Citation copiée ! Ouvrez Instagram pour partager.");
+    
+    // Try to open native Instagram share or app
     setTimeout(() => {
-      window.open('https://www.instagram.com', '_blank');
+      // attempt deep link
+      window.location.href = 'instagram://library?AssetPath=null'; 
+      
+      // Fallback after 500ms if protocol not supported
+      setTimeout(() => {
+        if (document.hasFocus()) {
+          window.open('https://www.instagram.com', '_blank');
+        }
+      }, 500);
     }, 1500);
   }).catch(err => {
     console.error('Failed to copy: ', err);
@@ -93,6 +142,7 @@ async function fetchQuotes() {
       { text: "Le seul moyen de faire du bon travail est d'aimer ce que vous faites.", author: "Steve Jobs" }
     ];
   } finally {
+    filteredQuotes = [...quotes];
     loader.classList.add('hidden');
     content.classList.remove('hidden');
     displayRandomQuote();
@@ -100,15 +150,22 @@ async function fetchQuotes() {
 }
 
 function displayRandomQuote() {
-  if (quotes.length === 0) return;
+  if (filteredQuotes.length === 0) {
+    quoteText.textContent = '"Aucune citation ne correspond à votre recherche."';
+    quoteAuthor.textContent = '';
+    return;
+  }
+
+  // Play subtle sound
+  playClickSound();
 
   // Animation: Fade out
   quoteText.classList.add('opacity-0');
   quoteAuthor.classList.add('opacity-0');
 
   setTimeout(() => {
-    const randomIndex = Math.floor(Math.random() * quotes.length);
-    currentQuote = quotes[randomIndex];
+    const randomIndex = Math.floor(Math.random() * filteredQuotes.length);
+    currentQuote = filteredQuotes[randomIndex];
 
     // Clean author name (sometimes API returns "type.fit" or null)
     let authorName = currentQuote.author || "Anonyme";
